@@ -15,6 +15,9 @@ if 'modules' not in sys.path:
 if 'utils' not in sys.path:
     sys.path.append('utils')
 
+if 'debug_mode' not in st.session_state:
+    st.session_state.debug_mode = False  # Set to True to see debug messages
+
 # Try to import custom modules (with error handling)
 try:
     from forecast import get_forecast_summary
@@ -520,241 +523,473 @@ def forecast_market_demand(historical_data, forecast_days=30, model=None, prepro
     
     # If no model or error occurred, use the fallback method
     return get_forecast_summary(historical_data, periods=forecast_days)
+
 # Function to generate resource configurations
-def generate_resource_configurations(crop, target_yield, model=None, preprocessor=None, num_configs=5):
-    """Generate multiple resource configurations using the model or fallback method"""
-    # Try using the ML model if available
-    if model is not None and preprocessor is not None:
-        try:
-            st.info(f"Using neural network to generate resource configurations for {crop}...")
-            
-            # Create input DataFrame with the crop name
-            crop_df = pd.DataFrame({'Crop': [crop] * num_configs})
-            
-            # Transform with the preprocessor
-            try:
-                crop_input = preprocessor.transform(crop_df)
-            except Exception as e:
-                st.error(f"Error in preprocessing: {e}")
-                st.warning("Model not working properly. Using predefined values.")
-                raise ValueError("Preprocessing failed")
-            
-            # Generate multiple configurations using the model
-            configurations = []
-            
-            # Define crop-specific parameters based on the actual data sample
-            crop_params = {
-                'Basil': {
-                    'Light': 185,           # ~185 in sample data
-                    'Temperature': 21,      # ~21 in sample data
-                    'Humidity': 63,         # ~63 in sample data
-                    'CO2': 700,             # ~700 in sample data
-                    'Soil_Moisture': 60,    # ~60 in sample data
-                    'pH': 6.2,              # ~6.2 in sample data
-                    'EC': 1.5               # ~1.5 in sample data
-                },
-                'Cilantro': {
-                    'Light': 115,           # ~115 in sample data
-                    'Temperature': 20,      # ~20 in sample data
-                    'Humidity': 65,         # ~65 in sample data
-                    'CO2': 700,             # ~700 in sample data
-                    'Soil_Moisture': 60,    # ~60 in sample data
-                    'pH': 6.2,              # ~6.2 in sample data
-                    'EC': 1.5               # ~1.5 in sample data
-                },
-                'Kale': {
-                    'Light': 150,           # estimated based on other greens
-                    'Temperature': 18,      # estimated
-                    'Humidity': 60,         # estimated
-                    'CO2': 650,             # estimated
-                    'Soil_Moisture': 60,    # ~60 in sample data
-                    'pH': 6.2,              # ~6.2 in sample data
-                    'EC': 1.5               # ~1.5 in sample data
-                },
-                'Lettuce': {
-                    'Light': 130,           # ~130 in sample data
-                    'Temperature': 18.5,    # ~18.5 in sample data
-                    'Humidity': 61,         # ~61 in sample data
-                    'CO2': 600,             # ~600 in sample data
-                    'Soil_Moisture': 60,    # ~60 in sample data
-                    'pH': 6.2,              # ~6.2 in sample data
-                    'EC': 1.35              # ~1.35 in sample data
-                },
-                'Spinach': {
-                    'Light': 125,           # ~125 in sample data
-                    'Temperature': 17.5,    # ~17.5 in sample data
-                    'Humidity': 60,         # ~60 in sample data
-                    'CO2': 600,             # ~600 in sample data
-                    'Soil_Moisture': 60,    # ~60 in sample data
-                    'pH': 6.2,              # ~6.2 in sample data
-                    'EC': 1.45              # ~1.45 in sample data
-                }
-            }
-            
-            # Get the base parameters for this crop
-            base_params = crop_params.get(crop, crop_params['Lettuce'])
-            
-            for i in range(num_configs):
-                try:
-                    # Call model predict with the transformed input
-                    resources = model.predict(crop_input)
-                    
-                    # Extract resource values
-                    if isinstance(resources, list):
-                        resource_values = resources[0]
-                    else:
-                        # Get the correct row if we have a batch
-                        resource_values = resources[i] if i < len(resources) else resources[0]
-                    
-                    # Build configuration based on model output but constrain to realistic ranges
-                    config = {
-                        'Configuration': i + 1,
-                        'Light': float(max(100, min(200, float(resource_values[0]) * 200))),
-                        'Temperature': float(max(15, min(25, float(resource_values[1]) * 25))),
-                        'Humidity': float(max(50, min(70, float(resource_values[2]) * 70))),
-                        'CO2': float(max(500, min(900, float(resource_values[3]) * 900))),
-                        'Soil_Moisture': float(max(50, min(70, float(resource_values[4]) * 70))),
-                        'pH': float(max(5.5, min(7.0, float(resource_values[5]) * 1.5 + 5.5))),
-                        'EC': float(max(1.0, min(2.0, float(resource_values[6]) * 2.0)))
-                    }
-                
-                except Exception as e:
-                    st.error(f"Error in model prediction: {e}")
-                    st.warning("Model prediction failed. Using predefined values.")
-                    
-                    # Create a configuration with parameters specific to this crop
-                    config = {
-                        'Configuration': i + 1,
-                        'Light': float(base_params['Light'] + (i - 2) * 10),        # Vary light levels between configs
-                        'Temperature': float(base_params['Temperature'] + (i - 2) * 0.5),  # Vary temperature
-                        'Humidity': float(base_params['Humidity'] + (i - 2) * 1),   # Vary humidity
-                        'CO2': float(base_params['CO2'] + (i - 2) * 25),            # Vary CO2
-                        'Soil_Moisture': float(base_params['Soil_Moisture'] + (i - 2) * 1),  # Vary soil moisture
-                        'pH': float(base_params['pH'] + (i - 2) * 0.05),            # Vary pH
-                        'EC': float(base_params['EC'] + (i - 2) * 0.05)             # Vary EC
-                    }
-                
-                # Adjust for target yield - scale based on target percentage difference
-                # Most microgreen data is around 80-90 yield
-                baseline_yield = 85
-                if target_yield > baseline_yield:
-                    # Scale certain parameters for higher yield targets
-                    yield_factor = target_yield / baseline_yield  # Calculate how much higher the target is
-                    scaling_factor = min(1.15, 1 + (yield_factor - 1) * 0.3)  # Cap scaling at 15%
-                    
-                    # Only adjust parameters that scale with yield (light, CO2, nutrients)
-                    config['Light'] = min(200, config['Light'] * scaling_factor)
-                    config['CO2'] = min(900, config['CO2'] * scaling_factor)
-                    config['EC'] = min(2.0, config['EC'] * scaling_factor)
-                
-                configurations.append(config)
-            
-            return configurations
-            
-        except Exception as e:
-            st.error(f"Error using resource generator model: {e}")
-            st.warning("Model not working. Using predefined crop-specific values.")
-    
-    # If no model or error, use predefined values
-    st.info("Using predefined crop-specific parameters")
-    
-    # Define deterministic crop-specific values based on the actual data sample
-    crop_params = {
+
+def get_default_config(crop):
+    """Get default baseline configuration for a crop if model fails"""
+    crop_defaults = {
         'Basil': {
-            'Light': 185,           # ~185 in sample data
-            'Temperature': 21,      # ~21 in sample data
-            'Humidity': 63,         # ~63 in sample data
-            'CO2': 700,             # ~700 in sample data
-            'Soil_Moisture': 60,    # ~60 in sample data
-            'pH': 6.2,              # ~6.2 in sample data
-            'EC': 1.5               # ~1.5 in sample data
+            'Light': 168.0,
+            'Temperature': 20.7,
+            'Humidity': 64.7,
+            'CO2': 695.3,
+            'Soil_Moisture': 60.0,
+            'pH': 6.2,
+            'EC': 1.5
         },
         'Cilantro': {
-            'Light': 115,           # ~115 in sample data
-            'Temperature': 20,      # ~20 in sample data
-            'Humidity': 65,         # ~65 in sample data
-            'CO2': 700,             # ~700 in sample data
-            'Soil_Moisture': 60,    # ~60 in sample data
-            'pH': 6.2,              # ~6.2 in sample data
-            'EC': 1.5               # ~1.5 in sample data
+            'Light': 143.3,
+            'Temperature': 19.9,
+            'Humidity': 58.5,
+            'CO2': 602.1,
+            'Soil_Moisture': 60.0,
+            'pH': 6.2,
+            'EC': 1.4
         },
         'Kale': {
-            'Light': 150,           # estimated based on other greens
-            'Temperature': 18,      # estimated
-            'Humidity': 60,         # estimated
-            'CO2': 650,             # estimated
-            'Soil_Moisture': 60,    # ~60 in sample data
-            'pH': 6.2,              # ~6.2 in sample data
-            'EC': 1.5               # ~1.5 in sample data
+            'Light': 123.5,
+            'Temperature': 19.3,
+            'Humidity': 57.6,
+            'CO2': 498.5,
+            'Soil_Moisture': 60.0,
+            'pH': 6.1,
+            'EC': 1.5
         },
         'Lettuce': {
-            'Light': 130,           # ~130 in sample data
-            'Temperature': 18.5,    # ~18.5 in sample data
-            'Humidity': 61,         # ~61 in sample data
-            'CO2': 600,             # ~600 in sample data
-            'Soil_Moisture': 60,    # ~60 in sample data
-            'pH': 6.2,              # ~6.2 in sample data
-            'EC': 1.35              # ~1.35 in sample data
+            'Light': 140.9,
+            'Temperature': 19.7,
+            'Humidity': 62.3,
+            'CO2': 596.0,
+            'Soil_Moisture': 60.0,
+            'pH': 6.2,
+            'EC': 1.5
         },
         'Spinach': {
-            'Light': 125,           # ~125 in sample data
-            'Temperature': 17.5,    # ~17.5 in sample data
-            'Humidity': 60,         # ~60 in sample data
-            'CO2': 600,             # ~600 in sample data
-            'Soil_Moisture': 60,    # ~60 in sample data
-            'pH': 6.2,              # ~6.2 in sample data
-            'EC': 1.45              # ~1.45 in sample data
+            'Light': 130.0,
+            'Temperature': 19.2,
+            'Humidity': 60.0,
+            'CO2': 550.0,
+            'Soil_Moisture': 60.0,
+            'pH': 6.1,
+            'EC': 1.5
         }
     }
     
-    # Get base values for this crop
-    base_params = crop_params.get(crop, crop_params['Lettuce'])
+    return crop_defaults.get(crop, crop_defaults['Lettuce'])
+
+
+# def generate_resource_configurations(crop, num_configs=5, model=None, preprocessor=None):
+#     """
+#     Generate multiple resource configurations using the model for baseline, then
+#     create meaningful variations based on different growing strategies.
     
-    # Create multiple configurations with systematic variations
-    configs = []
-    for i in range(num_configs):
-        # Create a configuration with parameters specific to this crop
-        # Each configuration varies systematically from the base parameters
-        config = {
-            'Configuration': i + 1,
-            'Light': float(base_params['Light'] + (i - 2) * 10),        # Vary light levels between configs
-            'Temperature': float(base_params['Temperature'] + (i - 2) * 0.5),  # Vary temperature
-            'Humidity': float(base_params['Humidity'] + (i - 2) * 1),   # Vary humidity
-            'CO2': float(base_params['CO2'] + (i - 2) * 25),            # Vary CO2
-            'Soil_Moisture': float(base_params['Soil_Moisture'] + (i - 2) * 1),  # Vary soil moisture
-            'pH': float(base_params['pH'] + (i - 2) * 0.05),            # Vary pH
-            'EC': float(base_params['EC'] + (i - 2) * 0.05)             # Vary EC
-        }
+#     Parameters:
+#     -----------
+#     crop : str
+#         Name of the crop (e.g., "Kale")
+#     num_configs : int
+#         Number of resource configurations to generate
+#     model : keras.Model, optional
+#         Resource generator model
+#     preprocessor : sklearn.preprocessing, optional
+#         Preprocessor for the resource generator model
         
-        # Adjust for target yield - scale based on target percentage difference
-        # Most microgreen data is around 80-90 yield
-        baseline_yield = 85
-        if target_yield > baseline_yield:
-            # Scale certain parameters for higher yield targets
-            yield_factor = target_yield / baseline_yield  # Calculate how much higher the target is
-            scaling_factor = min(1.15, 1 + (yield_factor - 1) * 0.3)  # Cap scaling at 15%
+#     Returns:
+#     --------
+#     list : List of configuration dictionaries with different growing parameters
+#     """
+#     # Replace st.debug with st.write wrapped in a check for debug mode
+#     if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+#         st.write(f"Generating configurations for {crop} with model: {model is not None}")
+    
+#     # Use model to get a baseline configuration
+#     if model is not None and preprocessor is not None:
+#         try:
+#             # Get baseline configuration from model
+#             crop_df = pd.DataFrame({'Crop': [crop]})
+#             crop_input = preprocessor.transform(crop_df)
+#             base_resources = model.predict(crop_input)[0]
             
-            # Only adjust parameters that scale with yield (light, CO2, nutrients)
-            config['Light'] = min(200, config['Light'] * scaling_factor)
-            config['CO2'] = min(900, config['CO2'] * scaling_factor)
-            config['EC'] = min(2.0, config['EC'] * scaling_factor)
-        
-        configs.append(config)
+#             # Create a baseline config with appropriate parameter names
+#             base_config = {
+#                 'Light': float(base_resources[0]),
+#                 'Temperature': float(base_resources[1]),
+#                 'Humidity': float(base_resources[2]),
+#                 'CO2': float(base_resources[3]),
+#                 'Soil_Moisture': float(base_resources[4]),
+#                 'pH': float(base_resources[5]),
+#                 'EC': float(base_resources[6])
+#             }
+            
+#             # Replace st.debug with st.write wrapped in a check for debug mode
+#             if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+#                 st.write(f"Model generated base config: {base_config}")
+#         except Exception as e:
+#             st.error(f"Error getting base configuration: {e}")
+#             # Use default base config if model fails
+#             base_config = get_default_config(crop)
+#             # Replace st.debug with st.write wrapped in a check for debug mode
+#             if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+#                 st.write(f"Using default config due to error: {base_config}")
+#     else:
+#         # Use default base config if no model
+#         base_config = get_default_config(crop)
+#         # Replace st.debug with st.write wrapped in a check for debug mode
+#         if 'debug_mode' in st.session_state and st.session_state.debug_mode:
+#             st.write(f"Using default config (no model): {base_config}")
     
-    return configs
+#     # Now create systematic variations
+#     configs = []
+    
+#     # Add the base config as configuration 1
+#     config1 = base_config.copy()
+#     config1['Configuration'] = 1
+#     config1['Name'] = "Balanced"
+#     config1['Description'] = "Optimal balanced parameters for general growing"
+#     configs.append(config1)
+    
+#     # Create variations focused on different growing strategies
+#     if num_configs > 1:
+#         # Config 2: High light strategy
+#         config2 = base_config.copy()
+#         config2['Configuration'] = 2
+#         config2['Name'] = "High Light"
+#         config2['Description'] = "Increased light intensity for faster growth"
+#         config2['Light'] = min(200, base_config['Light'] * 1.15)
+#         config2['Temperature'] = max(15, base_config['Temperature'] * 0.95)
+#         config2['CO2'] = min(900, base_config['CO2'] * 1.1)
+#         configs.append(config2)
+    
+#     if num_configs > 2:
+#         # Config 3: Nutrient focus strategy
+#         config3 = base_config.copy()
+#         config3['Configuration'] = 3
+#         config3['Name'] = "Nutrient Rich"
+#         config3['Description'] = "Enhanced nutrients for better nutrient content"
+#         config3['EC'] = min(2.0, base_config['EC'] * 1.15)
+#         config3['pH'] = min(7.0, base_config['pH'] * 1.05)
+#         config3['CO2'] = min(900, base_config['CO2'] * 1.05)
+#         config3['Soil_Moisture'] = min(80, base_config['Soil_Moisture'] * 1.1)
+#         configs.append(config3)
+    
+#     if num_configs > 3:
+#         # Config 4: Water conservation strategy
+#         config4 = base_config.copy()
+#         config4['Configuration'] = 4
+#         config4['Name'] = "Water Efficient"
+#         config4['Description'] = "Optimized for reduced water consumption"
+#         config4['Soil_Moisture'] = max(50, base_config['Soil_Moisture'] * 0.9)
+#         config4['Humidity'] = min(75, base_config['Humidity'] * 1.1)
+#         config4['Temperature'] = min(25, base_config['Temperature'] * 1.05)
+#         configs.append(config4)
+    
+#     if num_configs > 4:
+#         # Config 5: Energy efficient strategy
+#         config5 = base_config.copy()
+#         config5['Configuration'] = 5
+#         config5['Name'] = "Energy Efficient" 
+#         config5['Description'] = "Reduced energy use for more sustainable growing"
+#         config5['Light'] = max(100, base_config['Light'] * 0.9)
+#         config5['Temperature'] = min(25, base_config['Temperature'] * 1.1)
+#         config5['CO2'] = max(400, base_config['CO2'] * 0.9)
+#         configs.append(config5)
+    
+#     # Apply constraints to all configs to ensure values are within realistic ranges
+#     for config in configs:
+#         config['Light'] = max(100, min(200, config['Light']))
+#         config['Temperature'] = max(15, min(25, config['Temperature']))
+#         config['Humidity'] = max(45, min(75, config['Humidity']))
+#         config['CO2'] = max(400, min(900, config['CO2']))
+#         config['Soil_Moisture'] = max(50, min(80, config['Soil_Moisture']))
+#         config['pH'] = max(5.5, min(7.0, config['pH']))
+#         config['EC'] = max(0.8, min(2.0, config['EC']))
+    
+#     return configs
+
+def generate_optimized_configurations(crop, target_yield, max_attempts=20, num_configs=5, model=None, preprocessor=None, yield_model=None, yield_preprocessor=None):
+    """
+    Generate configurations and keep the ones that meet or exceed the target yield.
+    
+    Parameters:
+    -----------
+    crop : str
+        Name of the crop
+    target_yield : float
+        Target yield in g/tray
+    max_attempts : int
+        Maximum number of configuration attempts to generate
+    num_configs : int
+        Number of final configurations to return
+    model : keras.Model, optional
+        Resource generator model
+    preprocessor : sklearn.preprocessing, optional
+        Preprocessor for the resource generator model
+    yield_model : keras.Model, optional
+        Yield prediction model
+    yield_preprocessor : sklearn.preprocessing, optional
+        Preprocessor for the yield prediction model
+        
+    Returns:
+    --------
+    list : List of configuration dictionaries that meet or exceed the target yield
+    """
+    # Get base configuration
+    base_config = get_base_configuration(crop, model, preprocessor)
+    
+    # List to store configurations that meet the target yield
+    successful_configs = []
+    
+    # Set of strategies to try
+    strategies = [
+        {"name": "Balanced", "desc": "Optimal balanced parameters for general growing",
+         "mods": {"Light": 1.0, "Temperature": 1.0, "Humidity": 1.0, "CO2": 1.0, "Soil_Moisture": 1.0, "pH": 1.0, "EC": 1.0}},
+        
+        {"name": "High Light", "desc": "Increased light intensity for faster growth",
+         "mods": {"Light": 1.3, "Temperature": 0.9, "CO2": 1.2, "Humidity": 0.92}},
+        
+        {"name": "Nutrient Rich", "desc": "Enhanced nutrients for better nutrient content",
+         "mods": {"EC": 1.25, "pH": 1.06, "CO2": 1.05, "Soil_Moisture": 1.1}},
+        
+        {"name": "Water Efficient", "desc": "Optimized for reduced water consumption",
+         "mods": {"Soil_Moisture": 0.8, "Humidity": 1.15, "Temperature": 1.08, "Light": 1.08}},
+        
+        {"name": "Energy Efficient", "desc": "Reduced energy use for more sustainable growing",
+         "mods": {"Light": 0.75, "Temperature": 1.15, "CO2": 0.85, "EC": 1.05}}
+    ]
+    
+    # First try the standard strategies
+    for i, strategy in enumerate(strategies):
+        config = apply_strategy(base_config.copy(), strategy, i+1)
+        
+        # Predict yield for this configuration
+        predicted_yield = predict_config_yield(crop, config, yield_model, yield_preprocessor)
+        
+        # Add yield to configuration
+        config["Predicted_Yield"] = predicted_yield
+        
+        # Check if it meets the target
+        if predicted_yield >= target_yield:
+            successful_configs.append(config)
+    
+    # If we don't have enough configurations yet, try random variations
+    attempt = 0
+    while len(successful_configs) < num_configs and attempt < max_attempts:
+        # Create a random variation of the base config
+        config = create_random_variation(base_config.copy(), attempt+6)
+        
+        # Predict yield for this configuration
+        predicted_yield = predict_config_yield(crop, config, yield_model, yield_preprocessor)
+        
+        # Add yield to configuration
+        config["Predicted_Yield"] = predicted_yield
+        
+        # Check if it meets the target and is not too similar to existing configs
+        if predicted_yield >= target_yield and not is_similar_to_existing(config, successful_configs):
+            successful_configs.append(config)
+        
+        attempt += 1
+    
+    # If we still don't have enough configurations, add the best ones regardless of target
+    if len(successful_configs) < num_configs:
+        all_configs = successful_configs.copy()
+        
+        # Try more random variations
+        for i in range(max(0, num_configs - len(successful_configs))):
+            config = create_random_variation(base_config.copy(), len(all_configs) + 1)
+            predicted_yield = predict_config_yield(crop, config, yield_model, yield_preprocessor)
+            config["Predicted_Yield"] = predicted_yield
+            all_configs.append(config)
+        
+        # Sort by predicted yield
+        all_configs.sort(key=lambda x: x["Predicted_Yield"], reverse=True)
+        
+        # Take the top configurations
+        successful_configs = all_configs[:num_configs]
+    
+    # Sort by predicted yield
+    successful_configs.sort(key=lambda x: x["Predicted_Yield"], reverse=True)
+    
+    # Return the requested number of configurations
+    return successful_configs[:num_configs]
+
+def get_base_configuration(crop, model, preprocessor):
+    """Get base configuration for a crop using the model or defaults"""
+    if model is not None and preprocessor is not None:
+        try:
+            crop_df = pd.DataFrame({'Crop': [crop]})
+            crop_input = preprocessor.transform(crop_df)
+            base_resources = model.predict(crop_input)[0]
+            
+            return {
+                'Light': float(base_resources[0]),
+                'Temperature': float(base_resources[1]),
+                'Humidity': float(base_resources[2]),
+                'CO2': float(base_resources[3]),
+                'Soil_Moisture': float(base_resources[4]),
+                'pH': float(base_resources[5]),
+                'EC': float(base_resources[6])
+            }
+        except Exception as e:
+            st.error(f"Error getting base configuration: {e}")
+    
+    # Use default if model fails or is not available
+    return get_default_config(crop)
+
+def apply_strategy(config, strategy, config_id):
+    """Apply a strategy's modifications to a configuration"""
+    # Add metadata
+    config['Configuration'] = config_id
+    config['Name'] = strategy['name']
+    config['Description'] = strategy['desc']
+    
+    # Apply modifications
+    for param, factor in strategy['mods'].items():
+        if param in config:
+            config[param] *= factor
+    
+    # Apply constraints
+    apply_constraints(config)
+    
+    return config
+
+def create_random_variation(config, config_id):
+    """Create a random variation of a configuration"""
+    # Create a name and description
+    config['Configuration'] = config_id
+    config['Name'] = f"Custom {config_id}"
+    config['Description'] = "Custom parameter combination for optimal yield"
+    
+    # Parameters to vary
+    parameters = ['Light', 'Temperature', 'Humidity', 'CO2', 'Soil_Moisture', 'pH', 'EC']
+    
+    # Apply random variations (between 0.8 and 1.3 of original value)
+    for param in parameters:
+        if param in config:
+            variation = 0.8 + np.random.random() * 0.5  # 0.8 to 1.3
+            config[param] *= variation
+    
+    # Apply constraints
+    apply_constraints(config)
+    
+    return config
+
+def apply_constraints(config):
+    """Apply realistic constraints to configuration parameters"""
+    if 'Light' in config:
+        config['Light'] = max(100, min(200, config['Light']))
+    if 'Temperature' in config:
+        config['Temperature'] = max(15, min(25, config['Temperature']))
+    if 'Humidity' in config:
+        config['Humidity'] = max(45, min(75, config['Humidity']))
+    if 'CO2' in config:
+        config['CO2'] = max(400, min(900, config['CO2']))
+    if 'Soil_Moisture' in config:
+        config['Soil_Moisture'] = max(50, min(80, config['Soil_Moisture']))
+    if 'pH' in config:
+        config['pH'] = max(5.5, min(7.0, config['pH']))
+    if 'EC' in config:
+        config['EC'] = max(0.8, min(2.0, config['EC']))
+    
+    return config
+
+def predict_config_yield(crop, config, model=None, preprocessor=None):
+    """Predict yield for a configuration using the yield prediction model"""
+    if model is not None and preprocessor is not None:
+        try:
+            # Create input for model
+            input_df = pd.DataFrame({
+                'Crop': [crop],
+                'Light': [float(config['Light'])],
+                'Temperature': [float(config['Temperature'])],
+                'Humidity': [float(config['Humidity'])],
+                'CO2': [float(config['CO2'])],
+                'Soil Moisture': [float(config['Soil_Moisture'])],
+                'pH': [float(config['pH'])],
+                'EC': [float(config['EC'])]
+            })
+            
+            # Preprocess and predict
+            model_input = preprocessor.transform(input_df)
+            predicted_yield = model.predict(model_input)[0]
+            
+            # Extract scalar value if needed
+            if isinstance(predicted_yield, np.ndarray):
+                if predicted_yield.ndim > 1:
+                    predicted_yield = predicted_yield[0][0]
+                else:
+                    predicted_yield = predicted_yield[0]
+            
+            # Apply realistic constraints
+            crop_yield_ranges = {
+                'Basil': (75, 105),
+                'Cilantro': (70, 90),
+                'Kale': (80, 105),
+                'Lettuce': (70, 90),
+                'Spinach': (75, 95)
+            }
+            
+            yield_range = crop_yield_ranges.get(crop, (70, 95))
+            min_yield, max_yield = yield_range
+            
+            return max(min_yield * 0.8, min(max_yield * 1.1, float(predicted_yield)))
+        except Exception as e:
+            pass
+    
+    # Fallback to deterministic calculation
+    return calculate_deterministic_yield(crop, config)
+
+def is_similar_to_existing(config, existing_configs, threshold=0.1):
+    """Check if a configuration is too similar to existing ones"""
+    for existing in existing_configs:
+        # Calculate similarity based on key parameters
+        similarity_score = 0
+        count = 0
+        
+        for param in ['Light', 'Temperature', 'Humidity', 'CO2', 'Soil_Moisture', 'pH', 'EC']:
+            if param in config and param in existing:
+                # Calculate relative difference
+                diff = abs(config[param] - existing[param]) / max(config[param], existing[param])
+                similarity_score += diff
+                count += 1
+        
+        # Average difference across parameters
+        if count > 0:
+            avg_diff = similarity_score / count
+            if avg_diff < threshold:
+                return True  # Too similar
+    
+    return False  # Not too similar
 
 
-# Function to predict yield for resource configurations
 def predict_yield(crop, resource_configs, model=None, preprocessor=None):
-    """Predict yield for each resource configuration using the model or fallback method"""
+    """
+    Predict yield for each resource configuration using the model or fallback method.
+    
+    Parameters:
+    -----------
+    crop : str
+        Name of the crop
+    resource_configs : list
+        List of resource configuration dictionaries
+    model : keras.Model, optional
+        Yield predictor model
+    preprocessor : sklearn.preprocessing, optional
+        Preprocessor for the yield predictor model
+        
+    Returns:
+    --------
+    list : List of configuration dictionaries with predicted yields
+    """
+    # Create a copy of the configurations to add the yields
+    configs_with_yield = []
+    
     # Try using the ML model if available
     if model is not None and preprocessor is not None:
         try:
             st.info(f"Using neural network to predict yields for {crop}...")
             
             # Prepare input data for the model
-            configs_with_yield = []
-            
             for config in resource_configs:
                 try:
                     # Create DataFrame with crop and resource values
@@ -814,8 +1049,8 @@ def predict_yield(crop, resource_configs, model=None, preprocessor=None):
             
             # Sort by predicted yield
             configs_with_yield = sorted(configs_with_yield, 
-                                      key=lambda x: x['Predicted_Yield'], 
-                                      reverse=True)
+                                       key=lambda x: x['Predicted_Yield'], 
+                                       reverse=True)
             
             return configs_with_yield
             
@@ -826,7 +1061,6 @@ def predict_yield(crop, resource_configs, model=None, preprocessor=None):
     # If no model or error, use deterministic approach
     st.info("Using predefined yield calculation method")
     
-    configs_with_yield = []
     for config in resource_configs:
         # Calculate yield deterministically
         yield_value = calculate_deterministic_yield(crop, config)
@@ -839,17 +1073,46 @@ def predict_yield(crop, resource_configs, model=None, preprocessor=None):
     
     # Sort by predicted yield
     configs_with_yield = sorted(configs_with_yield, 
-                              key=lambda x: x['Predicted_Yield'], 
-                              reverse=True)
+                               key=lambda x: x['Predicted_Yield'], 
+                               reverse=True)
     
     return configs_with_yield
+
+
+def format_resource_display(resource_config):
+    """Format resource values with appropriate units for display"""
+    display_dict = {}
+    
+    # Copy only the resource parameters, excluding metadata fields
+    for key in ['Light', 'Temperature', 'Humidity', 'CO2', 'Soil_Moisture', 'pH', 'EC']:
+        if key in resource_config:
+            # Convert key from 'Soil_Moisture' format to 'Soil Moisture' for display
+            display_key = key.replace('_', ' ')
+            
+            # Format the value with appropriate units
+            if key == 'Light':
+                display_dict[display_key] = f"{resource_config[key]:.1f} μmol/m²/s"
+            elif key == 'Temperature':
+                display_dict[display_key] = f"{resource_config[key]:.1f} °C"
+            elif key == 'Humidity' or key == 'Soil_Moisture':
+                display_dict[display_key] = f"{resource_config[key]:.1f} %"
+            elif key == 'CO2':
+                display_dict[display_key] = f"{resource_config[key]:.0f} ppm"
+            elif key == 'pH':
+                display_dict[display_key] = f"{resource_config[key]:.1f}"
+            elif key == 'EC':
+                display_dict[display_key] = f"{resource_config[key]:.2f} mS/cm"
+            else:
+                display_dict[display_key] = f"{resource_config[key]}"
+    
+    return display_dict
 
 def calculate_deterministic_yield(crop, config):
     """Calculate yield deterministically based on crop type and resource configuration"""
     # Define ideal ranges for each crop (optimal growing conditions)
     ideal_ranges = {
         "Basil": {
-            'Light': (170, 200),
+            'Light': (160, 190),
             'Temperature': (20, 22),
             'Humidity': (60, 68),
             'CO2': (650, 800),
@@ -858,7 +1121,7 @@ def calculate_deterministic_yield(crop, config):
             'EC': (1.4, 1.8)
         },
         "Cilantro": {
-            'Light': (100, 125),
+            'Light': (120, 150),
             'Temperature': (18, 20),
             'Humidity': (60, 68),
             'CO2': (600, 700),
@@ -867,28 +1130,28 @@ def calculate_deterministic_yield(crop, config):
             'EC': (1.4, 1.6)
         },
         "Kale": {
-            'Light': (150, 200),
+            'Light': (140, 180),
             'Temperature': (16, 19),
-            'Humidity': (60, 68),
+            'Humidity': (55, 65),
             'CO2': (600, 700),
             'Soil_Moisture': (60, 70),
             'pH': (6.0, 6.3),
             'EC': (1.4, 1.6)
         },
         "Lettuce": {
-            'Light': (125, 150),
+            'Light': (120, 150),
             'Temperature': (18, 20),
             'Humidity': (60, 68),
-            'CO2': (600, 700),
+            'CO2': (550, 650),
             'Soil_Moisture': (60, 70),
             'pH': (6.0, 6.3),
             'EC': (1.3, 1.5)
         },
         "Spinach": {
-            'Light': (125, 150),
+            'Light': (120, 150),
             'Temperature': (17, 19),
             'Humidity': (55, 65),
-            'CO2': (550, 650),
+            'CO2': (500, 600),
             'Soil_Moisture': (58, 65),
             'pH': (6.0, 6.3),
             'EC': (1.4, 1.6)
@@ -897,8 +1160,8 @@ def calculate_deterministic_yield(crop, config):
     
     # Define base yields for each crop at ideal conditions based on actual data
     base_yields = {
-        "Basil": 90,
-        "Cilantro": 80,
+        "Basil": 100,
+        "Cilantro": 85,
         "Kale": 95,
         "Lettuce": 80,
         "Spinach": 85
@@ -910,30 +1173,39 @@ def calculate_deterministic_yield(crop, config):
     # Calculate how close each parameter is to its ideal range (0.0 to 1.0)
     param_scores = {}
     for param, (min_val, max_val) in crop_range.items():
-        current_val = config[param]
-        if min_val <= current_val <= max_val:
-            # Within ideal range - maximum score
-            param_scores[param] = 1.0
-        else:
-            # Outside ideal range, calculate distance as a percentage of the range
-            range_size = max_val - min_val
-            if current_val < min_val:
-                distance = (min_val - current_val) / range_size
+        try:
+            # Handle parameter name differences (Soil_Moisture vs Soil Moisture)
+            if param == 'Soil_Moisture' and 'Soil_Moisture' not in config and 'Soil Moisture' in config:
+                current_val = config['Soil Moisture']
             else:
-                distance = (current_val - max_val) / range_size
-            
-            # Convert distance to score (0.0 to 1.0)
-            param_scores[param] = max(0.0, 1.0 - distance)
+                current_val = config[param]
+                
+            if min_val <= current_val <= max_val:
+                # Within ideal range - maximum score
+                param_scores[param] = 1.0
+            else:
+                # Outside ideal range, calculate distance as a percentage of the range
+                range_size = max_val - min_val
+                if current_val < min_val:
+                    distance = (min_val - current_val) / range_size
+                else:
+                    distance = (current_val - max_val) / range_size
+                
+                # Convert distance to score (0.0 to 1.0)
+                param_scores[param] = max(0.0, 1.0 - distance * 0.5)  # Less penalty for being outside range
+        except (KeyError, TypeError):
+            # If parameter is missing, use a default middle score
+            param_scores[param] = 0.7
     
     # Weight the importance of different parameters
     weights = {
-        'Light': 0.25,         # Most important for photosynthesis
-        'Temperature': 0.20,    # Very important for growth rates
-        'Humidity': 0.10,       # Affects transpiration
-        'CO2': 0.15,            # Important for photosynthesis
-        'Soil_Moisture': 0.10,  # Water availability
-        'pH': 0.10,             # Nutrient availability
-        'EC': 0.10              # Nutrient concentration
+        'Light': 0.25,        # Most important for photosynthesis
+        'Temperature': 0.20,  # Very important for growth rates
+        'Humidity': 0.10,     # Affects transpiration
+        'CO2': 0.15,          # Important for photosynthesis
+        'Soil_Moisture': 0.10,# Water availability
+        'pH': 0.10,           # Nutrient availability
+        'EC': 0.10            # Nutrient concentration
     }
     
     # Calculate overall score (weighted average)
@@ -952,19 +1224,6 @@ def calculate_deterministic_yield(crop, config):
     
     # Round to 2 decimal places
     return round(calculated_yield, 2)
-
-# Function to format resource values for display
-def format_resource_display(resource_config):
-    """Format resource values with appropriate units for display"""
-    return {
-        'Light': f"{resource_config['Light']:.1f} μmol/m²/s",
-        'Temperature': f"{resource_config['Temperature']:.1f} °C",
-        'Humidity': f"{resource_config['Humidity']:.1f} %",
-        'CO2': f"{resource_config['CO2']:.0f} ppm",
-        'Soil Moisture': f"{resource_config['Soil_Moisture']:.1f} %",
-        'pH': f"{resource_config['pH']:.1f}",
-        'EC': f"{resource_config['EC']:.2f} mS/cm"
-    }
 
 # Function to create radar chart for resource visualization
 def create_resource_radar_chart(config, title=None):
@@ -1481,17 +1740,51 @@ elif st.session_state.step == 2:
     
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Step 3: Inventory Management
+# Step 3: Inventory Management (Modified to remove target yield)
 elif st.session_state.step == 3:
     st.markdown("<div class='step-container'>", unsafe_allow_html=True)
-    st.markdown("<h2 class='step-header'>Step 3: Update Inventory & Set Yield Targets</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 class='step-header'>Step 3: Update Inventory</h2>", unsafe_allow_html=True)
     st.markdown("""
     <div class="instruction-card">
     <p>Select crops that you already have in stock. Lower priority will be given to in-stock crops since you're already growing them.</p>
-    <p>Then set your target yield for each crop to get optimal growing parameters.</p>
     </div>
     """, unsafe_allow_html=True)
-    
+    # In Step 3, before the target yield settings section
+    # Get ranking data if available, or create default
+    if 'crop_ranking' in st.session_state:
+        ranking_df = st.session_state.crop_ranking.copy()
+    else:
+        # Create default ranking
+        ranking_data = []
+        for crop in CROPS:
+            base_price = 14.5 if crop == "Basil" else 12.3 if crop == "Cilantro" else 15.7 if crop == "Kale" else 8.9 if crop == "Lettuce" else 10.2
+            ranking_data.append({
+                'Crop': crop,
+                'Next Cycle Avg Price': round(base_price, 2),
+                'Overall Score': round(base_price, 2)
+            })
+        ranking_df = pd.DataFrame(ranking_data).sort_values('Overall Score', ascending=False)
+
+    # Determine focus crops (prioritize crops NOT in inventory)
+    focus_crops = []
+                
+    # First add crops NOT in inventory by ranking order
+    if 'crop_ranking' in st.session_state:
+        sorted_ranking = st.session_state.crop_ranking.sort_values('Overall Score', ascending=False)
+        for _, row in sorted_ranking.iterrows():
+            crop = row['Crop']
+            if crop not in st.session_state.inventory and crop not in focus_crops:
+                focus_crops.append(crop)
+                
+    # Then add crops in inventory at the end
+    for crop in st.session_state.inventory:
+        if crop not in focus_crops:
+            focus_crops.append(crop)
+                
+    # Limit to top 3 if more than 3
+    if len(focus_crops) > 3:
+        focus_crops = focus_crops[:3]
+
     col1, col2 = st.columns([1, 1])
     
     with col1:
@@ -1548,50 +1841,73 @@ elif st.session_state.step == 3:
         
         st.markdown("</div>", unsafe_allow_html=True)
     
+    # with col2:
+    #     st.subheader("Market Forecast Summary")
+        
+    #     # Show top crops by price
+    #     if 'crop_ranking' in st.session_state:
+    #         st.markdown("<div style='border: 1px solid #ddd; padding: 15px; border-radius: 5px;'>", unsafe_allow_html=True)
+    #         st.markdown("<strong>Top Crops by Forecast Price:</strong>", unsafe_allow_html=True)
+            
+    #         # Create a bar chart
+    #         fig, ax = plt.subplots(figsize=(8, 5))
+    #         sorted_df = ranking_df.sort_values('Overall Score', ascending=True)
+    #         colors = ['#1B5E20', '#2E7D32', '#388E3C', '#43A047', '#4CAF50'][:len(sorted_df)]
+            
+    #         # Create horizontal bar chart
+    #         bars = ax.barh(sorted_df['Crop'], sorted_df['Overall Score'], color=colors)
+            
+    #         # Add value labels
+    #         for i, bar in enumerate(bars):
+    #             ax.text(
+    #                 bar.get_width() + 0.2,
+    #                 bar.get_y() + bar.get_height()/2,
+    #                 f"${sorted_df['Overall Score'].iloc[i]:.2f}",
+    #                 va='center',
+    #                 fontweight='bold',
+    #                 color='black'
+    #             )
+            
+    #         ax.set_xlabel('Predicted Price ($/kg)')
+    #         ax.set_title('Crop Rankings by Predicted Price')
+    #         ax.grid(True, linestyle='--', alpha=0.7, axis='x')
+    #         ax.spines['top'].set_visible(False)
+    #         ax.spines['right'].set_visible(False)
+    #         plt.tight_layout()
+            
+    #         st.pyplot(fig)
+    #         st.markdown("</div>", unsafe_allow_html=True)
+
+   # In Step 3, add a target yield input
     with col2:
         st.subheader("Target Yield Settings")
         
         # Display sliders for yield adjustment
         st.markdown("<div style='border: 1px solid #ddd; padding: 15px; border-radius: 5px;'>", unsafe_allow_html=True)
         
-        # Get focus crops (prioritize crops NOT in inventory, then sort by ranking)
-        focus_crops = []
-        
-        # First add crops not in inventory by ranking order
-        for _, row in ranking_df.iterrows():
-            crop = row['Crop']
-            if crop not in st.session_state.inventory and crop not in focus_crops:
-                focus_crops.append(crop)
-        
-        # Then add crops in inventory
-        for crop in st.session_state.inventory:
-            if crop not in focus_crops:
-                focus_crops.append(crop)
-        
-        # Display yield sliders for each crop
         for crop in focus_crops:
-            # Add visual indicator for inventory items
-            if crop in st.session_state.inventory:
-                st.markdown(f"<div style='padding: 10px; background-color: #FFCDD2; border-left: 4px solid #D32F2F; border-radius: 5px; margin-bottom: 10px;'>", unsafe_allow_html=True)
-                st.markdown(f"<strong>{crop}</strong> (In Stock)", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<div style='padding: 10px; background-color: #E8F5E9; border-left: 4px solid #2E7D32; border-radius: 5px; margin-bottom: 10px;'>", unsafe_allow_html=True)
-                st.markdown(f"<strong>{crop}</strong>", unsafe_allow_html=True)
+            # Default target yields by crop
+            default_yield = {'Basil': 95, 'Cilantro': 85, 'Kale': 90, 'Lettuce': 80, 'Spinach': 85}.get(crop, 85)
             
-            # Yield slider
+            # Name formatting with inventory indicator
+            if crop in st.session_state.inventory:
+                crop_display = f"{crop} (In Stock)"
+            else:
+                crop_display = crop
+            
+            # Target yield slider
             st.session_state.target_yields[crop] = st.slider(
-                f"Target Yield (g/tray)",
-                min_value=50.0,
-                max_value=150.0,
-                value=st.session_state.target_yields.get(crop, 85.0),
+                f"{crop_display} Target Yield (g/tray)",
+                min_value=70.0,
+                max_value=105.0,
+                value=st.session_state.target_yields.get(crop, default_yield),
                 step=1.0,
                 key=f"yield_{crop}"
             )
-            
-            st.markdown("</div>", unsafe_allow_html=True)
         
         st.markdown("</div>", unsafe_allow_html=True)
-    
+
+
     # Next & Back buttons
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -1627,7 +1943,7 @@ elif st.session_state.step == 3:
     
     st.markdown("</div>", unsafe_allow_html=True)
     
-    # Step 4: Resource Recommendations
+# Step 4: Resource Recommendations (Improved)
 elif st.session_state.step == 4:
     st.markdown("<div class='step-container'>", unsafe_allow_html=True)
     st.markdown("<h2 class='step-header'>Step 4: Resource Recommendations</h2>", unsafe_allow_html=True)
@@ -1643,7 +1959,7 @@ elif st.session_state.step == 4:
     <div class="instruction-card">
     <p>Based on market forecasts and your inventory status, we recommend focusing on these crops for your next growing cycle:</p>
     <p><strong>Focus Crops:</strong> {', '.join(focus_crops)}</p>
-    <p>Below are the recommended growing parameters for each crop based on your target yields.</p>
+    <p>Below are the recommended optimal growing parameters for each crop.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -1653,9 +1969,6 @@ elif st.session_state.step == 4:
     # Get recommendations for each crop
     for i, crop in enumerate(focus_crops):
         with cols[i % len(cols)]:
-            # Get target yield for this crop
-            target_yield = st.session_state.target_yields.get(crop, 85.0)
-            
             # Get price forecast if available
             price_info = ""
             if 'crop_ranking' in st.session_state:
@@ -1669,10 +1982,10 @@ elif st.session_state.step == 4:
             border_color = "#D32F2F" if crop in st.session_state.inventory else "#2E7D32"
             status = "IN STOCK" if crop in st.session_state.inventory else "NEW CROP"
             st.markdown(f"""
-            <div style='background-color: {bg_color}; padding: 10px; border-radius: 5px; border-left: 4px solid {border_color}; margin-bottom: 10px; text-align: center;'>
+            <div style='background-color: {bg_color}; padding: 10px; border-radius: 5px; border-left: 4px solid {border_color}; margin-bottom: 10px; text-align: center;color: black;'>
             <h3>{crop}</h3>
             <p>{status}</p>
-            <p>Target Yield: <strong>{target_yield:.1f} g/tray</strong>{price_info}</p>
+            <p>{price_info}</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -1685,7 +1998,7 @@ elif st.session_state.step == 4:
                 formatted_resources = format_resource_display(best_config)
                 
                 # Display as a formatted table
-                st.markdown("<h4>Optimal Growing Parameters</h4>", unsafe_allow_html=True)
+                st.markdown(f"<h4>Optimal Growing Parameters ({best_config.get('Name', 'Configuration 1')})</h4>", unsafe_allow_html=True)
                 st.markdown("""
                 <table class="resource-table">
                 <tr><th>Parameter</th><th>Value</th></tr>
@@ -1710,21 +2023,27 @@ elif st.session_state.step == 4:
                 
                 st.markdown("</table>", unsafe_allow_html=True)
                 
+                # Display configuration description if available
+                if 'Description' in best_config:
+                    st.markdown(f"<p><em>{best_config['Description']}</em></p>", unsafe_allow_html=True)
+                
                 # Create radar chart
                 st.markdown("<h4>Resource Profile</h4>", unsafe_allow_html=True)
                 radar_fig = create_resource_radar_chart(best_config)
                 st.pyplot(radar_fig)
             else:
-                # If no configurations yet, generate them from the model or fallback
+                # If no configurations yet, generate them
                 st.info(f"Generating optimal resource configurations for {crop}...")
                 
                 # Generate multiple configurations
-                configs = generate_resource_configurations(
-                    crop, 
-                    target_yield,
+                configs = generate_optimized_configurations(
+                    crop,
+                    target_yield=st.session_state.target_yields.get(crop, 85.0),  # Add this line
+                    num_configs=5,
                     model=resource_model if resource_model_loaded else None,
                     preprocessor=preprocessors.get('resource_generator') if preprocessors.get('resource_generator') else None,
-                    num_configs=5
+                    yield_model=yield_model if yield_model_loaded else None,
+                    yield_preprocessor=preprocessors.get('yield_predictor') if preprocessors.get('yield_predictor') else None
                 )
                 
                 # Predict yield for each configuration
@@ -1745,7 +2064,7 @@ elif st.session_state.step == 4:
                 formatted_resources = format_resource_display(best_config)
                 
                 # Display as a formatted table
-                st.markdown("<h4>Optimal Growing Parameters</h4>", unsafe_allow_html=True)
+                st.markdown(f"<h4>Optimal Growing Parameters ({best_config.get('Name', 'Configuration 1')})</h4>", unsafe_allow_html=True)
                 st.markdown("""
                 <table class="resource-table">
                 <tr><th>Parameter</th><th>Value</th></tr>
@@ -1769,6 +2088,10 @@ elif st.session_state.step == 4:
                 
                 st.markdown("</table>", unsafe_allow_html=True)
                 
+                # Display configuration description if available
+                if 'Description' in best_config:
+                    st.markdown(f"<p><em>{best_config['Description']}</em></p>", unsafe_allow_html=True)
+                
                 # Create radar chart
                 st.markdown("<h4>Resource Profile</h4>", unsafe_allow_html=True)
                 radar_fig = create_resource_radar_chart(best_config)
@@ -1780,9 +2103,6 @@ elif st.session_state.step == 4:
     # Initialize profit data
     profit_data = []
     for crop in focus_crops:
-        # Get target yield (now in g/tray)
-        target_yield = st.session_state.target_yields.get(crop, 85.0)
-
         # Get average forecast price ($/kg)
         if 'crop_ranking' in st.session_state:
             crop_row = st.session_state.crop_ranking[st.session_state.crop_ranking['Crop'] == crop]
@@ -1800,7 +2120,8 @@ elif st.session_state.step == 4:
             best_config = st.session_state.resource_configs[crop][0]
             predicted_yield = best_config['Predicted_Yield']
         else:
-            predicted_yield = target_yield
+            # Default yield if no configurations
+            predicted_yield = 85.0
 
         # Convert from g/tray to kg/tray for price calculations
         predicted_yield_kg = predicted_yield / 1000
@@ -1819,9 +2140,15 @@ elif st.session_state.step == 4:
         # Calculate ROI
         roi = (profit_per_tray / cost_per_tray) * 100 if cost_per_tray > 0 else 0
 
+        # Get configuration name if available
+        if crop in st.session_state.resource_configs:
+            config_name = st.session_state.resource_configs[crop][0].get('Name', 'Optimal')
+        else:
+            config_name = 'Optimal'
+
         profit_data.append({
             'Crop': crop,
-            'Target Yield': target_yield,
+            'Configuration': config_name,
             'Predicted Yield': predicted_yield,
             'Forecast Price': avg_price,
             'Revenue': revenue_per_tray,
@@ -1829,14 +2156,12 @@ elif st.session_state.step == 4:
             'Profit': profit_per_tray,
             'ROI': roi
         })
-        
     
     # Create profit DataFrame
     profit_df = pd.DataFrame(profit_data)
     
     # Display styled table
     st.dataframe(profit_df.style.format({
-        'Target Yield': '{:.1f} g/tray',
         'Predicted Yield': '{:.1f} g/tray',
         'Forecast Price': '${:.2f}/kg',
         'Revenue': '${:.2f}/tray',
@@ -1865,7 +2190,7 @@ elif st.session_state.step == 4:
                f'${height:.2f}',
                ha='center', va='bottom')
     
-    ax.set_ylabel('Profit per m² ($)')
+    ax.set_ylabel('Profit per Tray ($)')
     ax.set_title('Projected Profit by Crop')
     ax.grid(True, linestyle='--', alpha=0.7, axis='y')
     plt.tight_layout()
@@ -1883,28 +2208,38 @@ elif st.session_state.step == 4:
         
         # Display as a table
         config_data = []
-        for i, config in enumerate(configs):
-            config_data.append({
-                'Configuration': f"Config {i+1}",
+        for config in configs:
+            config_row = {
+                'Configuration': f"{config['Configuration']}: {config.get('Name', '')}",
                 'Light': f"{config['Light']:.1f} μmol/m²/s",
                 'Temperature': f"{config['Temperature']:.1f} °C",
                 'Humidity': f"{config['Humidity']:.1f} %",
                 'CO2': f"{config['CO2']:.0f} ppm",
                 'pH': f"{config['pH']:.1f}",
                 'EC': f"{config['EC']:.2f} mS/cm",
-                'Predicted Yield': f"{config['Predicted_Yield']:.2f} kg/m²" 
-            })
+                'Predicted Yield': f"{config['Predicted_Yield']:.2f} g/tray"
+            }
+            config_data.append(config_row)
         
         config_df = pd.DataFrame(config_data)
         st.dataframe(config_df, use_container_width=True)
         
+        # Show configuration descriptions
+        st.markdown("<h4>Configuration Details:</h4>", unsafe_allow_html=True)
+        for config in configs:
+            if 'Description' in config and 'Name' in config:
+                st.markdown(f"**{config['Name']}**: {config['Description']}", unsafe_allow_html=True)
+        
         # Create yield comparison chart
         fig, ax = plt.subplots(figsize=(10, 5))
         
-        config_names = [f"Config {i+1}" for i in range(len(configs))]
+        config_names = [f"{c.get('Name', f'Config {c.get('Configuration', i+1)}')}" for i, c in enumerate(configs)]
         yields = [config['Predicted_Yield'] for config in configs]
         
-        bars = ax.bar(config_names, yields, color='#388E3C')
+        # Use a color gradient from light to dark green
+        color_gradient = ['#4CAF50', '#43A047', '#388E3C', '#2E7D32', '#1B5E20'][:len(configs)]
+        
+        bars = ax.bar(config_names, yields, color=color_gradient)
         
         # Add value labels
         for bar in bars:
@@ -1913,12 +2248,24 @@ elif st.session_state.step == 4:
                    f'{height:.2f}',
                    ha='center', va='bottom')
         
-        ax.set_ylabel('Predicted Yield (kg/m²)')
+        ax.set_ylabel('Predicted Yield (g/tray)')
         ax.set_title(f'Yield Comparison for {selected_crop} Configurations')
         ax.grid(True, linestyle='--', alpha=0.7, axis='y')
+        plt.xticks(rotation=30, ha='right')
         plt.tight_layout()
         
         st.pyplot(fig)
+        
+        # Add visual comparison of configurations
+        st.markdown("<h4>Visual Comparison:</h4>", unsafe_allow_html=True)
+        
+        # Create multiple radar charts in a row
+        radar_cols = st.columns(min(len(configs), 3))
+        for i, config in enumerate(configs):
+            with radar_cols[i % len(radar_cols)]:
+                st.markdown(f"<p style='text-align:center'><strong>{config.get('Name', f'Config {config.get('Configuration', i+1)}')}</strong></p>", unsafe_allow_html=True)
+                radar_fig = create_resource_radar_chart(config, title=None)
+                st.pyplot(radar_fig)
     else:
         st.info(f"No configurations generated yet for {selected_crop}")
     
@@ -1930,10 +2277,23 @@ elif st.session_state.step == 4:
         most_profitable = profit_df.loc[profit_df['Profit'].idxmax()]['Crop']
         highest_profit = profit_df.loc[profit_df['Profit'].idxmax()]['Profit']
         highest_roi = profit_df.loc[profit_df['ROI'].idxmax()]['Crop']
+        
+        # Get configuration names
+        if most_profitable in st.session_state.resource_configs:
+            most_profitable_config = st.session_state.resource_configs[most_profitable][0].get('Name', 'Optimal')
+        else:
+            most_profitable_config = 'Optimal'
+            
+        if highest_roi in st.session_state.resource_configs:
+            highest_roi_config = st.session_state.resource_configs[highest_roi][0].get('Name', 'Optimal')
+        else:
+            highest_roi_config = 'Optimal'
     else:
         most_profitable = focus_crops[0] if focus_crops else CROPS[0]
         highest_profit = 0
+        most_profitable_config = 'Optimal'
         highest_roi = focus_crops[0] if focus_crops else CROPS[0]
+        highest_roi_config = 'Optimal'
     
     # Overall recommendation
     st.markdown(f"""
@@ -1941,8 +2301,8 @@ elif st.session_state.step == 4:
     <h4>Production Strategy</h4>
     <p>Based on your inputs and our analysis, we recommend:</p>
     <ul>
-    <li><strong>Primary Focus:</strong> {most_profitable} (${highest_profit:.2f}/m² projected profit)</li>
-    <li><strong>Best ROI:</strong> {highest_roi}</li>
+    <li><strong>Primary Focus:</strong> {most_profitable} (${highest_profit:.2f}/tray projected profit) using the <em>{most_profitable_config}</em> configuration</li>
+    <li><strong>Best ROI:</strong> {highest_roi} using the <em>{highest_roi_config}</em> configuration</li>
     <li><strong>Resource Allocation:</strong> Use the parameters above to optimize your growing conditions</li>
     </ul>
     <p>For your next growing cycle starting after {st.session_state.cycle_end_date.strftime('%B %d, %Y')}, adjust your growing environment to match these recommendations.</p>
@@ -1961,14 +2321,15 @@ elif st.session_state.step == 4:
             if not crop_profit_row.empty:
                 profit = crop_profit_row['Profit'].values[0]
                 roi = crop_profit_row['ROI'].values[0]
+                config = crop_profit_row['Configuration'].values[0]
                 
                 if profit > 0 and roi > 10:
                     st.markdown(f"""
-                    <p><strong>{crop} (In Stock):</strong> Continue growing with the recommended parameters. Projected profit: ${profit:.2f}/m².</p>
+                    <p><strong>{crop} (In Stock):</strong> Continue growing with the recommended <em>{config}</em> configuration. Projected profit: ${profit:.2f}/tray.</p>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown(f"""
-                    <p><strong>{crop} (In Stock):</strong> Consider reducing allocation or optimizing growing parameters to improve profit (currently ${profit:.2f}/m²).</p>
+                    <p><strong>{crop} (In Stock):</strong> Consider reducing allocation or optimizing growing parameters to improve profit (currently ${profit:.2f}/tray).</p>
                     """, unsafe_allow_html=True)
         
         st.markdown("</div>", unsafe_allow_html=True)
