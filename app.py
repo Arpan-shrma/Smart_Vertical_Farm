@@ -707,9 +707,9 @@ def get_default_config(crop):
     
 #     return configs
 
-def generate_optimized_configurations(crop, target_yield, max_attempts=20, num_configs=5, model=None, preprocessor=None, yield_model=None, yield_preprocessor=None):
+def generate_optimized_configurations(crop, target_yield, max_attempts=50, num_configs=5, model=None, preprocessor=None, yield_model=None, yield_preprocessor=None):
     """
-    Generate configurations and keep the ones that meet or exceed the target yield.
+    Generate configurations that are closest to the target yield.
     
     Parameters:
     -----------
@@ -732,13 +732,18 @@ def generate_optimized_configurations(crop, target_yield, max_attempts=20, num_c
         
     Returns:
     --------
-    list : List of configuration dictionaries that meet or exceed the target yield
+    list : List of configuration dictionaries with yields closest to the target
     """
+    # Create a progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    status_text.text(f"Optimizing configurations for {crop}... (Target: {target_yield} g/tray)")
+    
     # Get base configuration
     base_config = get_base_configuration(crop, model, preprocessor)
     
-    # List to store configurations that meet the target yield
-    successful_configs = []
+    # List to store all generated configurations with their yields
+    all_configs = []
     
     # Set of strategies to try
     strategies = [
@@ -746,16 +751,16 @@ def generate_optimized_configurations(crop, target_yield, max_attempts=20, num_c
          "mods": {"Light": 1.0, "Temperature": 1.0, "Humidity": 1.0, "CO2": 1.0, "Soil_Moisture": 1.0, "pH": 1.0, "EC": 1.0}},
         
         {"name": "High Light", "desc": "Increased light intensity for faster growth",
-         "mods": {"Light": 1.3, "Temperature": 0.9, "CO2": 1.2, "Humidity": 0.92}},
+         "mods": {"Light": 1.5, "Temperature": 0.85, "CO2": 1.3, "Humidity": 0.85}},
         
         {"name": "Nutrient Rich", "desc": "Enhanced nutrients for better nutrient content",
-         "mods": {"EC": 1.25, "pH": 1.06, "CO2": 1.05, "Soil_Moisture": 1.1}},
+         "mods": {"EC": 1.4, "pH": 1.1, "CO2": 1.2, "Soil_Moisture": 1.2}},
         
         {"name": "Water Efficient", "desc": "Optimized for reduced water consumption",
-         "mods": {"Soil_Moisture": 0.8, "Humidity": 1.15, "Temperature": 1.08, "Light": 1.08}},
+         "mods": {"Soil_Moisture": 0.7, "Humidity": 1.25, "Temperature": 1.15, "Light": 1.15}},
         
         {"name": "Energy Efficient", "desc": "Reduced energy use for more sustainable growing",
-         "mods": {"Light": 0.75, "Temperature": 1.15, "CO2": 0.85, "EC": 1.05}}
+         "mods": {"Light": 0.65, "Temperature": 1.25, "CO2": 0.75, "EC": 1.15}}
     ]
     
     # First try the standard strategies
@@ -768,15 +773,19 @@ def generate_optimized_configurations(crop, target_yield, max_attempts=20, num_c
         # Add yield to configuration
         config["Predicted_Yield"] = predicted_yield
         
-        # Check if it meets the target
-        if predicted_yield >= target_yield:
-            successful_configs.append(config)
+        # Add to all configs
+        all_configs.append(config)
+        
+        # Update progress
+        progress_bar.progress((i+1) / (len(strategies) + max_attempts))
     
-    # If we don't have enough configurations yet, try random variations
-    attempt = 0
-    while len(successful_configs) < num_configs and attempt < max_attempts:
-        # Create a random variation of the base config
-        config = create_random_variation(base_config.copy(), attempt+6)
+    # Now try random variations with increasingly extreme modifications
+    for attempt in range(max_attempts):
+        # Increase variation factor as attempts increase
+        variation_factor = 0.5 + (attempt / max_attempts) * 1.0  # Starts at 0.5, goes up to 1.5
+        
+        # Create a more extreme random variation as attempts increase
+        config = create_random_variation(base_config.copy(), len(strategies) + attempt + 1, variation_factor)
         
         # Predict yield for this configuration
         predicted_yield = predict_config_yield(crop, config, yield_model, yield_preprocessor)
@@ -784,34 +793,74 @@ def generate_optimized_configurations(crop, target_yield, max_attempts=20, num_c
         # Add yield to configuration
         config["Predicted_Yield"] = predicted_yield
         
-        # Check if it meets the target and is not too similar to existing configs
-        if predicted_yield >= target_yield and not is_similar_to_existing(config, successful_configs):
-            successful_configs.append(config)
+        # Add to all configs
+        all_configs.append(config)
         
-        attempt += 1
+        # Calculate closest yield so far to target
+        closest_yield = min(all_configs, key=lambda x: abs(x["Predicted_Yield"] - target_yield))["Predicted_Yield"]
+        closest_diff = abs(closest_yield - target_yield)
+        
+        # Update status with current closest yield
+        status_text.text(f"Optimizing configurations for {crop}... (Target: {target_yield} g/tray, Closest: {closest_yield:.2f} g/tray, Diff: {closest_diff:.2f})")
+        
+        # Update progress
+        progress_bar.progress((len(strategies) + attempt + 1) / (len(strategies) + max_attempts))
     
-    # If we still don't have enough configurations, add the best ones regardless of target
-    if len(successful_configs) < num_configs:
-        all_configs = successful_configs.copy()
-        
-        # Try more random variations
-        for i in range(max(0, num_configs - len(successful_configs))):
-            config = create_random_variation(base_config.copy(), len(all_configs) + 1)
-            predicted_yield = predict_config_yield(crop, config, yield_model, yield_preprocessor)
-            config["Predicted_Yield"] = predicted_yield
-            all_configs.append(config)
-        
-        # Sort by predicted yield
-        all_configs.sort(key=lambda x: x["Predicted_Yield"], reverse=True)
-        
-        # Take the top configurations
-        successful_configs = all_configs[:num_configs]
+    # Sort all configs by how close they are to the target yield (ascending difference)
+    all_configs.sort(key=lambda x: abs(x["Predicted_Yield"] - target_yield))
     
-    # Sort by predicted yield
-    successful_configs.sort(key=lambda x: x["Predicted_Yield"], reverse=True)
+    # Filter out similar configurations to get diverse options close to target
+    final_configs = []
+    for config in all_configs:
+        if not is_similar_to_existing(config, final_configs, threshold=0.05):
+            final_configs.append(config)
+            if len(final_configs) >= num_configs:
+                break
     
-    # Return the requested number of configurations
-    return successful_configs[:num_configs]
+    # Update status with final result
+    best_config = final_configs[0] if final_configs else None
+    if best_config:
+        closest_yield = best_config["Predicted_Yield"]
+        difference = abs(closest_yield - target_yield)
+        percentage = (difference / target_yield) * 100
+        
+        if difference <= 5:  # Within 5g of target
+            status_text.text(f"✅ Found configuration with yield {closest_yield:.2f} g/tray (within {percentage:.1f}% of target {target_yield} g/tray)")
+        else:
+            status_text.text(f"ℹ️ Closest achievable yield: {closest_yield:.2f} g/tray ({percentage:.1f}% from target {target_yield} g/tray)")
+    else:
+        status_text.text(f"⚠️ Could not find suitable configurations for {crop}")
+    
+    # Clear the progress bar after completion
+    progress_bar.empty()
+    
+    return final_configs[:num_configs]
+
+def create_random_variation(config, config_id, variation_factor=0.5):
+    """Create a random variation of a configuration with specified intensity"""
+    # Create a name and description
+    config['Configuration'] = config_id
+    config['Name'] = f"Custom {config_id}"
+    config['Description'] = "Custom parameter combination for optimal yield"
+    
+    # Parameters to vary
+    parameters = ['Light', 'Temperature', 'Humidity', 'CO2', 'Soil_Moisture', 'pH', 'EC']
+    
+    # Apply random variations (intensity controlled by variation_factor)
+    for param in parameters:
+        if param in config:
+            # More extreme variations as variation_factor increases
+            min_factor = max(0.5, 1.0 - variation_factor)
+            max_factor = min(1.5, 1.0 + variation_factor)
+            
+            # Random factor between min_factor and max_factor
+            factor = min_factor + np.random.random() * (max_factor - min_factor)
+            config[param] *= factor
+    
+    # Apply constraints
+    apply_constraints(config)
+    
+    return config
 
 def get_base_configuration(crop, model, preprocessor):
     """Get base configuration for a crop using the model or defaults"""
@@ -853,26 +902,6 @@ def apply_strategy(config, strategy, config_id):
     
     return config
 
-def create_random_variation(config, config_id):
-    """Create a random variation of a configuration"""
-    # Create a name and description
-    config['Configuration'] = config_id
-    config['Name'] = f"Custom {config_id}"
-    config['Description'] = "Custom parameter combination for optimal yield"
-    
-    # Parameters to vary
-    parameters = ['Light', 'Temperature', 'Humidity', 'CO2', 'Soil_Moisture', 'pH', 'EC']
-    
-    # Apply random variations (between 0.8 and 1.3 of original value)
-    for param in parameters:
-        if param in config:
-            variation = 0.8 + np.random.random() * 0.5  # 0.8 to 1.3
-            config[param] *= variation
-    
-    # Apply constraints
-    apply_constraints(config)
-    
-    return config
 
 def apply_constraints(config):
     """Apply realistic constraints to configuration parameters"""
@@ -1878,32 +1907,53 @@ elif st.session_state.step == 3:
     #         st.pyplot(fig)
     #         st.markdown("</div>", unsafe_allow_html=True)
 
-   # In Step 3, add a target yield input
+   # target yield input
+   # In Step 3, when creating target yield sliders
+
     with col2:
         st.subheader("Target Yield Settings")
         
         # Display sliders for yield adjustment
         st.markdown("<div style='border: 1px solid #ddd; padding: 15px; border-radius: 5px;'>", unsafe_allow_html=True)
+ 
+    # Define realistic yield ranges based on the training data
+    crop_yield_ranges = {
+        'Basil': (80, 110),      # Basil can achieve higher yields
+        'Cilantro': (70, 95),    # Cilantro has medium-high yields
+        'Kale': (65, 90),        # Kale has medium yields
+        'Lettuce': (60, 85),     # Lettuce has lower yields
+        'Spinach': (60, 80)      # Spinach has the lowest yields
+    }
+
+    # Default values are set to the median yield for each crop
+    default_yields = {
+        'Basil': 100,
+        'Cilantro': 85, 
+        'Kale': 80,
+        'Lettuce': 75,
+        'Spinach': 73
+    }
+
+    for crop in focus_crops:
+        # Get the appropriate yield range and default for this crop
+        min_yield, max_yield = crop_yield_ranges.get(crop, (70, 90))
+        default_yield = default_yields.get(crop, 80)
         
-        for crop in focus_crops:
-            # Default target yields by crop
-            default_yield = {'Basil': 95, 'Cilantro': 85, 'Kale': 90, 'Lettuce': 80, 'Spinach': 85}.get(crop, 85)
-            
-            # Name formatting with inventory indicator
-            if crop in st.session_state.inventory:
-                crop_display = f"{crop} (In Stock)"
-            else:
-                crop_display = crop
-            
-            # Target yield slider
-            st.session_state.target_yields[crop] = st.slider(
-                f"{crop_display} Target Yield (g/tray)",
-                min_value=70.0,
-                max_value=105.0,
-                value=st.session_state.target_yields.get(crop, default_yield),
-                step=1.0,
-                key=f"yield_{crop}"
-            )
+        # Name formatting with inventory indicator
+        if crop in st.session_state.inventory:
+            crop_display = f"{crop} (In Stock)"
+        else:
+            crop_display = crop
+        
+        # Target yield slider with crop-specific range
+        st.session_state.target_yields[crop] = st.slider(
+            f"{crop_display} Target Yield (g/tray)",
+            min_value=float(min_yield),
+            max_value=float(max_yield),
+            value=st.session_state.target_yields.get(crop, default_yield),
+            step=1.0,
+            key=f"yield_{crop}"
+        )
         
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2126,21 +2176,56 @@ elif st.session_state.step == 4:
         # Convert from g/tray to kg/tray for price calculations
         predicted_yield_kg = predicted_yield / 1000
 
-        # Calculate costs
-        # Base cost per tray varies by crop (material, seed, labor costs)
-        base_tray_cost = 3.0 if crop == "Basil" else 2.5 if crop == "Cilantro" else 3.2 if crop == "Kale" else 2.0 if crop == "Lettuce" else 2.8
-        # Add variable costs based on yield
-        variable_cost = 0.01 * predicted_yield  # Higher yields use more resources
-        cost_per_tray = base_tray_cost + variable_cost
+        # Calculate costs per tray - realistic microgreens values
+        # Seeds cost (varies by crop)
+        seed_costs = {
+            'Basil': 0.30,
+            'Cilantro': 0.25, 
+            'Kale': 0.35,
+            'Lettuce': 0.20,
+            'Spinach': 0.30
+        }
+        seed_cost = seed_costs.get(crop, 0.30)
+        
+        # Growing medium cost (same for all crops)
+        medium_cost = 0.15
+        
+        # Container cost (same for all crops)
+        container_cost = 0.10
+        
+        # Fixed costs subtotal
+        fixed_cost = seed_cost + medium_cost + container_cost
+        
+        # Variable costs based on resources used (very minimal for microgreens)
+        if crop in st.session_state.resource_configs:
+            config = st.session_state.resource_configs[crop][0]
+            # Light (electricity) - higher for higher light intensity
+            light_cost = config.get('Light', 150) * 0.0005
+            # Water - higher for higher soil moisture
+            water_cost = config.get('Soil_Moisture', 60) * 0.0002
+        else:
+            light_cost = 0.075  # Default of 150 * 0.0005
+            water_cost = 0.012  # Default of 60 * 0.0002
+        
+        # Labor costs (estimated at 20 seconds per tray at $15/hour)
+        labor_cost = (20/3600) * 15
+        
+        # Packaging costs
+        packaging_cost = 0.05
+        
+        # Total cost per tray
+        cost_per_tray = fixed_cost + light_cost + water_cost + labor_cost + packaging_cost
 
-        # Calculate revenue and profit per tray
-        revenue_per_tray = avg_price * predicted_yield_kg  # Price is $/kg, yield is kg/tray
+        # Calculate revenue per tray
+        revenue_per_tray = avg_price * predicted_yield_kg
+        
+        # Profit per tray
         profit_per_tray = revenue_per_tray - cost_per_tray
-
-        # Calculate ROI
+        
+        # ROI
         roi = (profit_per_tray / cost_per_tray) * 100 if cost_per_tray > 0 else 0
 
-        # Get configuration name if available
+        # Get configuration name
         if crop in st.session_state.resource_configs:
             config_name = st.session_state.resource_configs[crop][0].get('Name', 'Optimal')
         else:
