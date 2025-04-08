@@ -1,127 +1,150 @@
-# Vertical Farming Resource Optimizer
+# Smart Vertical Farm: Resource Optimizer
 
-This application helps vertical farm operators make data-driven decisions to optimize resource allocation, maximize crop yield, and align production with market demands.
+## Overview
+
+Smart Vertical Farm is an intelligent web application built with Streamlit and machine learning that helps vertical farmers optimize their growing resources and maximize profits. By combining market forecasting with crop-specific growing recommendations, the system helps farmers make data-driven decisions about which crops to grow and how to optimize growing conditions.
+
+![Smart Vertical Farm Logo](https://raw.githubusercontent.com/HarshTiwari1710/Resource-Competition-Modelling/refs/heads/main/logo.png)
 
 ## Features
 
-- **Market Price Forecasting**: Predict future crop prices to plan planting cycles strategically
-- **Resource Recommendation**: Get optimal environmental conditions for maximizing crop yields
-- **Integrated Dashboard**: Comprehensive view of market trends and resource allocation strategies
+- **Market Price Forecasting**: Predicts future crop prices using XGBoost ML model
+- **Crop Ranking**: Ranks crops by profitability based on market forecasts
+- **Inventory Management**: Tracks current crop inventory 
+- **Target Yield Settings**: Set realistic target yields for each crop
+- **Resource Optimization**: Generates optimal growing parameters customized to each crop
+- **Growing Strategy Options**: Provides multiple configuration strategies:
+  - Balanced: Optimal general growing parameters
+  - High Light: Increased light intensity for faster growth
+  - Nutrient Rich: Enhanced nutrients for better nutrient content
+  - Water Efficient: Optimized water consumption
+  - Energy Efficient: Reduced energy use for sustainable growing
+- **Profit Projections**: Calculates expected revenue, costs, profit and ROI
+- **Visual Comparisons**: Radar charts and bar graphs for parameter visualization
 
-## System Architecture
+## Installation
 
-```
-vertical-farming-app/
-│
-├── app.py                     ← Main Streamlit interface
-├── requirements.txt           ← List of dependencies 
-│
-├── models/
-│   ├── xgb_final_model.pkl    ← Trained XGBoost crop price model
-│   └── my_model.h5            ← Trained Keras yield recommender model
-│
-├── data/
-│   └── sample_data.csv        ← Example input data (optional)
-│
-├── modules/
-│   ├── forecast.py            ← Handles price forecasting logic
-│   └── recommender.py         ← Handles yield/environment recommendation logic
-│
-└── utils/
-    └── preprocessing.py       ← Shared preprocessing and feature engineering
-```
+### Prerequisites
 
-## Installation & Setup
+- Python 3.8+
+- pip
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-username/vertical-farming-app.git
-   cd vertical-farming-app
+### Setup
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/smart-vertical-farm.git
+   cd smart-vertical-farm
    ```
 
-2. **Create a virtual environment**:
-   ```bash
+2. Create and activate a virtual environment (optional):
+   ```
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. **Install dependencies**:
-   ```bash
+3. Install dependencies:
+   ```
    pip install -r requirements.txt
    ```
 
-4. **Create necessary directories**:
-   ```bash
-   mkdir -p models data
+### Required Libraries
+
+- streamlit
+- pandas
+- numpy
+- matplotlib
+- seaborn
+- tensorflow
+- scikit-learn
+- joblib
+- xgboost
+
+## Usage
+
+1. Start the Streamlit application:
+   ```
+   streamlit run app.py
    ```
 
-5. **Download pre-trained models**:
-   Place the pre-trained XGBoost model (`xgb_final_model.pkl`) and Keras model (`my_model.h5`) in the `models/` directory.
+2. Navigate through the 4-step process:
+   - **Step 1**: Set your current growing cycle end date
+   - **Step 2**: Review price forecasts & crop rankings
+   - **Step 3**: Update inventory and set target yields
+   - **Step 4**: Get optimized resource recommendations
 
-## Running the Application
+## Machine Learning Models
 
-Start the Streamlit app with:
+This application uses three main ML models:
 
-```bash
-streamlit run app.py
+1. **Market Forecast Model** (`forecast_market_demand.pkl`):
+   - XGBoost regressor trained on market data
+   - Predicts crop prices based on historical patterns
+
+2. **Resource Generator Model** (`resource_generator_model.h5`):
+   - Neural network that generates optimal growing parameters
+   - Trained on environmental condition data from successful crops
+
+3. **Yield Predictor Model** (`yield_predictor_model.h5`):
+   - Neural network that predicts yield based on growing parameters
+   - Evaluates different resource configurations
+
+## Project Structure
+
+```
+smart-vertical-farm/
+├── app.py                           # Main application file
+├── requirements.txt                 # Python dependencies
+├── README.md                        # Project documentation
+├── models/                          # Trained ML models
+│   ├── forecast_market_demand.pkl   # Market forecast model
+│   ├── resource_generator_model.h5  # Resource generator model
+│   └── yield_predictor_model.h5     # Yield predictor model
+├── preprocessors/                   # Model preprocessors
+│   ├── market_forecast_preprocessor.pkl
+│   ├── preprocessor_resource_model.pkl
+│   └── preprocessor_yield_model.pkl
+├── modules/                         # Helper modules
+│   ├── forecast.py                  # Forecasting functions
+│   └── recommender.py               # Recommendation functions
+└── utils/                           # Utility functions
+    └── dummy_preprocessor.py        # Fallback preprocessors
 ```
 
-The application will be available at [http://localhost:8501](http://localhost:8501).
+## ML Model Training
 
-## Using the Application
+For information on how the models were trained, refer to the Jupyter notebooks in the `notebooks` directory:
+- `market_forecast.ipynb`: Training process for price forecasting model
+- `resource_optimization.ipynb`: Training for resource generator model
+- `yield_prediction.ipynb`: Training for yield prediction model
 
-### Market Price Forecasting
+## Demo Data
 
-1. Select the start date for historical data
-2. Choose crops you want to forecast
-3. Set the forecast horizon (days)
-4. Optionally upload your custom historical data
-5. Click "Generate Forecast" to view predictions
+The application includes demo market data if no real data is available, allowing for testing without connecting to actual crop price databases.
 
-### Resource Recommendation
+## Profit Calculation
 
-1. Select a crop from the dropdown
-2. Adjust the target yield slider
-3. Click "Get Recommendations" to view optimal growing conditions
+Profit for each crop is calculated using realistic microgreens industry costs:
+- Seed costs (varying by crop)
+- Growing medium
+- Container costs
+- Electricity (based on light intensity)
+- Water (based on soil moisture)
+- Labor costs
+- Packaging costs
 
-### Integrated Dashboard
+These are subtracted from revenue (yield * market price) to determine profit per tray.
 
-1. Select crops to analyze in the sidebar
-2. Set the forecast horizon and target yields
-3. Click "Update Dashboard" to generate a comprehensive view
-4. Explore the market overview, resource allocation, and optimization summary tabs
+## Development Team
 
-## Data Format
-
-If you're uploading custom historical data, it should be a CSV file with the following columns:
-- Timestamp (in YYYY-MM-DD format)
-- Crop (one of: Basil, Cilantro, Kale, Lettuce, Spinach)
-- Price per kg (numerical value)
-- Volume Sold per Cycle (numerical value)
-- Dump Amount (numerical value)
-
-## Technical Information
-
-### Models
-
-1. **Price Forecasting Model**: 
-   - XGBoost regressor trained on historical market data
-   - Accounts for seasonality, market trends, and crop-specific factors
-   - Forecasts prices for up to 90 days ahead
-
-2. **Resource Recommendation Model**:
-   - Neural network model trained on sensor data from vertical farms
-   - Recommends optimal growing conditions for desired crop yields
-   - Parameters include light, temperature, humidity, CO2, soil moisture, pH, and EC
-
-## Authors
-
-- Arpan Sharma
 - Harsh Tiwari
-
-## Guide 
-Gurujit Randhawa
+- Arpan Sharma
+- Gurujit Randhawa
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+Special thanks to the contributors of the market data and growing parameters used to train our models.
